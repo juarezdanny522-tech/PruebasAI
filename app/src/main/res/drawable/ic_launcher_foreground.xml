@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Destello / "spark" central de IA -->
+    <group
+        android:scaleX="1.0"
+        android:scaleY="1.0"
+        android:translateX="27"
+        android:translateY="27">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M27,0 L33,18 L54,27 L33,36 L27,54 L21,36 L0,27 L21,18 Z" />
+        <path
+            android:fillColor="#CCFFFFFF"
+            android:pathData="M47,36 L50,45 L59,48 L50,51 L47,60 L44,51 L35,48 L44,45 Z" />
+    </group>
+</vector>

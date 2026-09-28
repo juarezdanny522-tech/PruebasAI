@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+local.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystore de producción (el de desarrollo sí se versiona a propósito)
+*.jks
+
+# Modelos de IA descargados
+*.litertlm
+*.gguf
+*.task
+
+# Sistema
+.DS_Store
