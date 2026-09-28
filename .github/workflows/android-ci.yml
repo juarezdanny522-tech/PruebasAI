@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configurar Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -37,13 +37,13 @@ jobs:
           set -o pipefail
           ./gradlew assembleDebug assembleRelease --stacktrace 2>&1 | tee build.log || {
             echo "### ❌ Falló la compilación" >> "$GITHUB_STEP_SUMMARY"
-            grep -E "^\s*e: |error:|FAILURE:|What went wrong|Caused by:|> Could not|> Task .* FAILED" build.log | head -10 | while IFS= read -r line; do
+            grep -E "^\s*e: |error:|FAILURE:|What went wrong|Caused by:|> Could not|> Task .* FAILED|Dependency '|requires|compile against" build.log | head -10 | while IFS= read -r line; do
               echo "::error::${line}"
             done
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "#### Resumen de errores" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
-            grep -E "^\s*e: |error:|FAILURE:|What went wrong|Caused by:|> Could not|> Task .* FAILED" build.log | head -25 >> "$GITHUB_STEP_SUMMARY"
+            grep -E "^\s*e: |error:|FAILURE:|What went wrong|Caused by:|> Could not|> Task .* FAILED|Dependency '|requires|compile against" build.log | head -25 >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "#### Últimas 150 líneas del log" >> "$GITHUB_STEP_SUMMARY"

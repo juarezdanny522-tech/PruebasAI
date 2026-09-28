@@ -17,7 +17,7 @@ val hasReleaseKeystore = releaseKeystoreFile.exists() &&
 
 android {
     namespace = "com.pruebasai.app"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.pruebasai.app"
