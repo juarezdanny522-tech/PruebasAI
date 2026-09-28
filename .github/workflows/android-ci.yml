@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: write
-  gist: write
 
 jobs:
   build:
@@ -38,16 +37,21 @@ jobs:
           set -o pipefail
           ./gradlew assembleDebug assembleRelease --stacktrace 2>&1 | tee build.log || {
             echo "### ❌ Falló la compilación" >> "$GITHUB_STEP_SUMMARY"
-            ERRORS=$(grep -E "^\s*e: |error:|FAILURE:|What went wrong|Caused by:|> Could not|> Task .* FAILED|error: resource" build.log | head -25)
-            echo "$ERRORS" >> "$GITHUB_STEP_SUMMARY"
-            echo "$ERRORS" | while IFS= read -r line; do
-              [ -n "$line" ] && echo "::error::${line}"
+            grep -E "^\s*e: |error:|FAILURE:|What went wrong|Caused by:|> Could not|> Task .* FAILED" build.log | head -10 | while IFS= read -r line; do
+              echo "::error::${line}"
             done
-            gh gist create --desc "PruebasAI build log ${GITHUB_RUN_ID}" build.log 2>/dev/null || true
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "#### Resumen de errores" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            grep -E "^\s*e: |error:|FAILURE:|What went wrong|Caused by:|> Could not|> Task .* FAILED" build.log | head -25 >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "#### Últimas 150 líneas del log" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 150 build.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
             exit 1
           }
-        env:
-          GH_TOKEN: ${{ github.token }}
 
       - name: Preparar APKs
         run: |
