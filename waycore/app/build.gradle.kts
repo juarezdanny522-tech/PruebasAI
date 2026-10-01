@@ -2,9 +2,13 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
+    // Kotlin viene integrado en AGP 9 (built-in Kotlin). Solo hace falta el
+    // plugin del compilador de Compose.
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Clave de Gemini embebida en el build (opcional). La app también permite
+// pegarla en pantalla de configuración o usar la IA local sin clave.
 val localProps = Properties()
 val localFile = rootProject.file("local.properties")
 if (localFile.exists()) {
@@ -22,6 +26,15 @@ val geminiKey = geminiKeyRaw.trim()
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")
 
+// Firma de desarrollo (NO usar nunca para Play Store). Ver keystore/README.md
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore/keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val releaseKeystoreFile = rootProject.file("keystore/dev-release.p12")
+val hasReleaseKeystore = releaseKeystoreFile.exists() &&
+        keystoreProps.getProperty("storePassword") != null
+
 android {
     namespace = "com.wayhat.waycore"
     compileSdk = 37
@@ -33,20 +46,20 @@ android {
         versionCode = 8
         versionName = "0.7.0"
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
+
+        // arm64 para móviles reales y x86_64 para emuladores.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
     }
 
     signingConfigs {
-        create("release") {
-            val keystoreFile = rootProject.file("keystore/dev-release.p12")
-            val props = java.util.Properties().apply {
-                val f = rootProject.file("keystore/keystore.properties")
-                if (f.exists()) f.inputStream().use { load(it) }
-            }
-            if (keystoreFile.exists()) {
-                storeFile = keystoreFile
-                storePassword = props.getProperty("storePassword", "pruebasai-dev-2026")
-                keyAlias = props.getProperty("keyAlias", "pruebasai")
-                keyPassword = props.getProperty("keyPassword", "pruebasai-dev-2026")
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = releaseKeystoreFile
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
             }
         }
     }
@@ -54,10 +67,15 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            val rel = signingConfigs.getByName("release")
-            signingConfig = if (rel.storeFile != null) rel else signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
         debug {
             isMinifyEnabled = false
@@ -76,36 +94,37 @@ android {
 
     packaging {
         jniLibs.useLegacyPackaging = true
-    }
-
-    androidResources {
-        noCompress += "litertlm"
-    }
-
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a", "x86_64")
-            isUniversalApk = false
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
 }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
-    implementation("androidx.activity:activity-compose:1.10.1")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
-    implementation("androidx.work:work-runtime-ktx:2.10.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.1")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("org.json:json:20240303")
-
-    // ── IA local (Google AI Edge / LiteRT-LM) ──
+    // Motor de IA local (LiteRT-LM de Google) — inferencia 100% en el dispositivo
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
-    implementation("org.jetbrains.kotlin:kotlin-reflect:2.4.20")
+
+    // Compose UI (Material 3)
+    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
+    implementation(composeBom)
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+
+    // Activity / Lifecycle
+    implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.3")
+
+    // Trabajo en segundo plano y corrutinas
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // Gemini en la nube (modo opcional)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // JSON usado por LiteRT-LM y por el protocolo con el ESP32
+    implementation("com.google.code.gson:gson:2.11.0")
+
+    debugImplementation("androidx.compose.ui:ui-tooling")
 }

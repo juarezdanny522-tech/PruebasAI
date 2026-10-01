@@ -79,6 +79,17 @@ jobs:
             [ -f "$f" ] && grep -n -A 30 -E "FAILURE|FAILED|Exception|error:" "$f" | tail -n 400 >> error-logs/summary.txt
           done
 
+      - name: Report errors as annotations
+        if: failure()
+        run: |
+          if [ -f error-logs/summary.txt ]; then
+            # Emite las líneas clave como anotaciones (único canal visible sin logs)
+            grep -hE "What went wrong|Execution failed|FAILURE:|Manifest merger|uses-sdk|error:|e: file|Caused by" error-logs/summary.txt | tail -10 | while IFS= read -r line; do
+              clean=$(echo "$line" | tr '\r\n' '  ' | cut -c1-450)
+              echo "::error::${clean}"
+            done
+          fi
+
       - name: Upload error reports
         if: failure()
         uses: actions/upload-artifact@v4
@@ -95,33 +106,11 @@ jobs:
           echo "VERSION_WAYCORE=$VERSION_WAYCORE" >> "$GITHUB_ENV"
           echo "VERSION_APP=$VERSION_APP" >> "$GITHUB_ENV"
 
-          # PruebasAI (APKs universales, sin splits)
+          # PruebasAI y WayCore (APKs universales arm64 + x86_64)
           [ -f app/build/outputs/apk/debug/app-debug.apk ] && cp app/build/outputs/apk/debug/app-debug.apk "dist/PruebasAI-debug.apk"
           [ -f app/build/outputs/apk/release/app-release.apk ] && cp app/build/outputs/apk/release/app-release.apk "dist/PruebasAI.apk"
-
-          # WayCore (splits por ABI)
-          for apk in waycore/app/build/outputs/apk/debug/*-debug.apk; do
-            [ -f "$apk" ] || continue
-            name=$(basename "$apk" .apk)
-            abi=${name#app-}; abi=${abi%-debug}
-            case "$abi" in
-              arm64) abi=arm64-v8a ;;
-              x64|x86-64) abi=x86_64 ;;
-            esac
-            cp "$apk" "dist/WayCore-debug-${abi}-${VERSION_WAYCORE}.apk"
-          done
-          for apk in waycore/app/build/outputs/apk/release/*-release.apk; do
-            [ -f "$apk" ] || continue
-            name=$(basename "$apk" .apk)
-            abi=${name#app-}; abi=${abi%-release}
-            case "$abi" in
-              arm64) abi=arm64-v8a ;;
-              x64|x86-64) abi=x86_64 ;;
-            esac
-            cp "$apk" "dist/WayCore-${abi}-${VERSION_WAYCORE}.apk"
-          done
-          # Nombre simple para instalar en el teléfono: el release arm64
-          [ -f "dist/WayCore-arm64-v8a-${VERSION_WAYCORE}.apk" ] && cp "dist/WayCore-arm64-v8a-${VERSION_WAYCORE}.apk" "dist/WayCore.apk"
+          [ -f waycore/app/build/outputs/apk/debug/app-debug.apk ] && cp waycore/app/build/outputs/apk/debug/app-debug.apk "dist/WayCore-debug.apk"
+          [ -f waycore/app/build/outputs/apk/release/app-release.apk ] && cp waycore/app/build/outputs/apk/release/app-release.apk "dist/WayCore.apk"
           ls -la dist/
           sha256sum dist/*.apk > dist/SHA256SUMS.txt || true
           cat dist/SHA256SUMS.txt || true
@@ -157,6 +146,8 @@ jobs:
             - **Modos Automático / Local / Gemini**: automático usa el modelo local primero y recurre a Gemini solo si hace falta.
             - **Karbys controla WayHat también con IA local** (herramientas seguras: modo, sensibilidad, buzzer, telemetría).
             - Se mantiene todo lo de v0.6.0: palabra clave confiable, "¿Dime?" con voz, clave API configurable en la app.
+
+            Archivos: `WayCore.apk` (instalar en el teléfono) y `WayCore-debug.apk` (depuración).
           files: |
             dist/*.apk
             dist/SHA256SUMS.txt
