@@ -70,3 +70,7 @@ Requisitos: JDK 17 y Android SDK (compileSdk 36). El resto lo descarga Gradle.
 - Elige la variante del modelo según tu móvil: los archivos «universales» (sin sufijos) van bien en CPU y GPU; los `*-gpu` están optimizados para GPU.
 - Si el modelo va lento, baja la **longitud de contexto** o sube los **hilos de CPU** en Ajustes.
 - La app solo usa internet para **descargar** los modelos. Todo el razonamiento ocurre en el dispositivo.
+
+## WayCore (Karbys + WayHat) incluido
+
+Este repo también contiene **WayCore v0.7.0** en la carpeta `waycore/`: la app de los lentes inteligentes WayHat con su asistente **Karbys** y **IA 100% local (LiteRT-LM)** — modelos descargables desde la app, modos Automático/Local/Gemini y control de WayHat por function calling. GitHub Actions compila `WayCore.apk` junto con los APK de PruebasAI en cada push. Más detalles en `waycore/README.md`.

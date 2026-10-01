@@ -1,0 +1,345 @@
+package com.wayhat.waycore
+
+import android.Manifest
+import android.content.*
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import android.os.*
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import com.wayhat.waycore.ai.ModelCatalog
+import com.wayhat.waycore.ai.ModelManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import androidx.core.content.ContextCompat
+import org.json.JSONObject
+import kotlin.math.roundToInt
+
+class MainActivity : ComponentActivity() {
+    private var ready by mutableStateOf(false)
+    private var paused by mutableStateOf(false)
+    private var wayHatConnected by mutableStateOf(false)
+    private var wayHatMessage by mutableStateOf("Buscando WayHat…")
+    private var right by mutableStateOf(-1)
+    private var left by mutableStateOf(-1)
+    private var rear by mutableStateOf(-1)
+    private var tf by mutableStateOf(-1)
+    private var closest by mutableStateOf(-1)
+    private var threshold by mutableStateOf(50)
+    private var mode by mutableStateOf("SAFE")
+    private var buzzer by mutableStateOf(true)
+    private var battery by mutableStateOf(0)
+    private var locationText by mutableStateOf("Ubicación no disponible")
+    private var keyConfigured by mutableStateOf(false)
+    private val uiScope = kotlinx.coroutines.MainScope()
+    private val aiMode = MutableStateFlow(AiRouter.getMode(this))
+
+    private fun refreshAiMode() { aiMode.value = AiRouter.getMode(this) }
+
+    private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        val mic = result[Manifest.permission.RECORD_AUDIO] == true || has(Manifest.permission.RECORD_AUDIO)
+        if (mic) startKarbys() else paused = true
+        startWayHat()
+        updateDeviceInfo()
+    }
+
+    private val receiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != WayHatService.ACTION_STATUS) return
+            intent.getStringExtra("message")?.let { wayHatMessage = it }
+            if (intent.hasExtra("connected")) wayHatConnected = intent.getBooleanExtra("connected", false)
+            intent.getStringExtra("telemetry")?.let { parseTelemetry(it) }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        keyConfigured = ApiKeyStore.isConfigured(this)
+        ModelManager.init(this)
+        aiMode.value = AiRouter.getMode(this)
+        AiRouter.warmUp(this)
+        val filter = IntentFilter(WayHatService.ACTION_STATUS)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        else registerReceiver(receiver, filter)
+        setContent {
+            MaterialTheme {
+                Surface(Modifier.fillMaxSize()) {
+                    if (!keyConfigured) {
+                        KeySetupScreen(
+                            onSave = { apiKey ->
+                                ApiKeyStore.save(this, apiKey)
+                                keyConfigured = true
+                                requestPermissionsIfNeeded()
+                            },
+                            onCancel = { keyConfigured = true }
+                        )
+                    } else {
+                        var prompt by remember { mutableStateOf("") }
+                    Column(
+                        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("WAYCORE", style = MaterialTheme.typography.headlineMedium)
+                        Text(if (wayHatConnected) "WayHat conectado" else wayHatMessage)
+                        Spacer(Modifier.height(14.dp))
+                        Button(
+                            onClick = { if (!ready) requestPermissionsIfNeeded() else send(KarbysService.ACTION_LISTEN) },
+                            modifier = Modifier.size(230.dp).semantics { contentDescription = "Hablar con Karbys" }
+                        ) { Text(if (ready) "HABLAR" else "KARBYS") }
+
+                        OutlinedTextField(
+                            value = prompt, onValueChange = { prompt = it },
+                            modifier = Modifier.fillMaxWidth().padding(top = 18.dp),
+                            label = { Text("Escribe una pregunta para Karbys") }
+                        )
+                        Button(onClick = { if (prompt.isNotBlank()) { sendText(prompt.trim()); prompt = "" } }, modifier = Modifier.padding(top = 8.dp)) {
+                            Text("ENVIAR")
+                        }
+
+                        HorizontalDivider(Modifier.padding(vertical = 18.dp))
+                        Text("WAYHAT", style = MaterialTheme.typography.titleLarge)
+                        Text("Modo: ${if (mode == "SAFE") "Seguro" else "Charla"}")
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { mode = "SAFE"; sendConfig() }, Modifier.weight(1f)) { Text("SEGURO") }
+                            Button(onClick = { mode = "CHAT"; sendConfig() }, Modifier.weight(1f)) { Text("CHARLA") }
+                        }
+                        Text("Sensibilidad: $threshold cm")
+                        Slider(value = threshold.toFloat(), onValueChange = { threshold = (it / 5).roundToInt() * 5 }, valueRange = 20f..100f, onValueChangeFinished = { sendConfig() })
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Avisos sonoros")
+                            Spacer(Modifier.width(12.dp))
+                            Switch(checked = buzzer, onCheckedChange = { buzzer = it; sendConfig() })
+                        }
+
+                        Text("Derecha: ${cm(right)}   Izquierda: ${cm(left)}   Atrás: ${cm(rear)}")
+                        Text("TF-Luna: ${cm(tf)}   Más cercano: ${cm(closest)}")
+                        Text("Batería: $battery%")
+                        Text("GPS: $locationText")
+                        Spacer(Modifier.height(12.dp))
+
+                        // ── CEREBRO DE KARBYS: IA 100% local en el teléfono o Gemini en la nube ──
+                        Text("CEREBRO DE KARBYS", style = MaterialTheme.typography.titleMedium)
+                        val currentMode by aiMode.collectAsState()
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                AiRouter.MODE_AUTO to "Automático",
+                                AiRouter.MODE_LOCAL to "Local",
+                                AiRouter.MODE_CLOUD to "Gemini"
+                            ).forEach { (value, label) ->
+                                Button(
+                                    onClick = {
+                                        AiRouter.setMode(this@MainActivity, value)
+                                        refreshAiMode()
+                                        if (value != AiRouter.MODE_CLOUD) {
+                                            uiScope.launch(Dispatchers.IO) {
+                                                AiRouter.ensureEngineReady(this@MainActivity)
+                                            }
+                                        }
+                                    },
+                                    colors = if (currentMode == value) ButtonDefaults.buttonColors()
+                                    else ButtonDefaults.outlinedButtonColors()
+                                ) { Text(label) }
+                            }
+                        }
+                        val engine by LocalAiEngine.state.collectAsState()
+                        val models by ModelManager.localModels.collectAsState()
+                        val modelProgress by ModelManager.progress.collectAsState()
+                        Text(
+                            when (engine) {
+                                is LocalAiEngine.State.Ready -> "IA local: lista ✅"
+                                is LocalAiEngine.State.Loading -> "IA local: cargando modelo… ⏳"
+                                is LocalAiEngine.State.Error -> "IA local: error al cargar ⚠️"
+                                is LocalAiEngine.State.NoModel -> "IA local: descarga un modelo para responder sin internet"
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (modelProgress.file != null) {
+                            LinearProgressIndicator(
+                                progress = { modelProgress.fraction },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                "Descargando… ${(modelProgress.fraction * 100).toInt()}%",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        ModelCatalog.entries.forEach { m ->
+                            val downloaded = models.any { it.fileName == m.fileName }
+                            val selected = AiRouter.selectedModelName(this@MainActivity) == m.fileName
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        m.label + (if (selected) "  ✓" else ""),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                    Text(
+                                        if (downloaded) m.size else "${m.size} — toca para descargar",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                    )
+                                }
+                                if (downloaded) {
+                                    Button(onClick = {
+                                        AiRouter.selectModel(this@MainActivity, m.fileName)
+                                        uiScope.launch(Dispatchers.IO) {
+                                            val modelFile = ModelManager.localModels.value.firstOrNull { it.fileName == m.fileName }?.file
+                                                ?: ModelManager.modelsDir(this@MainActivity).resolve(m.fileName)
+                                            LocalAiEngine.load(modelFile)
+                                        }
+                                    }) { Text("USAR") }
+                                } else if (modelProgress.file != m.fileName) {
+                                    Button(onClick = { ModelManager.download(this@MainActivity, m) }) { Text("BAJAR") }
+                                }
+                            }
+                        }
+                        Text(
+                            "Local = funciona sin internet en este teléfono. Gemini = usa tu clave API. " +
+                                "Automático = local primero y Gemini si hace falta.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Spacer(Modifier.height(12.dp))
+
+                        Button(onClick = { startWayHat() }) { Text("RECONECTAR WAYHAT") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { sendHardware("BUZZER_TEST") }) { Text("PROBAR BUZZER") }
+                            Button(onClick = { sendHardware("SENSORS") }) { Text("ACTUALIZAR") }
+                        }
+                        Button(onClick = { keyConfigured = false }) { Text("CAMBIAR CLAVE API") }
+                        if (paused) Button(onClick = { requestPermissionsIfNeeded() }) { Text("ACTIVAR KARBYS") }
+                    }
+                }
+                }
+            }
+        }
+        if (keyConfigured) requestPermissionsIfNeeded()
+    }
+
+    override fun onDestroy() {
+        unregisterReceiver(receiver)
+        super.onDestroy()
+    }
+
+    private fun requestPermissionsIfNeeded() {
+        val needed = mutableListOf<String>()
+        if (!has(Manifest.permission.RECORD_AUDIO)) needed += Manifest.permission.RECORD_AUDIO
+        if (!has(Manifest.permission.ACCESS_FINE_LOCATION) && !has(Manifest.permission.ACCESS_COARSE_LOCATION)) needed += Manifest.permission.ACCESS_COARSE_LOCATION
+        if (Build.VERSION.SDK_INT >= 31 && !has(Manifest.permission.BLUETOOTH_CONNECT)) needed += Manifest.permission.BLUETOOTH_CONNECT
+        if (Build.VERSION.SDK_INT >= 31 && !has(Manifest.permission.BLUETOOTH_SCAN)) needed += Manifest.permission.BLUETOOTH_SCAN
+        if (Build.VERSION.SDK_INT >= 33 && !has(Manifest.permission.POST_NOTIFICATIONS)) needed += Manifest.permission.POST_NOTIFICATIONS
+        if (needed.isEmpty()) { startKarbys(); startWayHat(); updateDeviceInfo() } else permissions.launch(needed.toTypedArray())
+    }
+
+    private fun startKarbys() {
+        ready = true; paused = false
+        ContextCompat.startForegroundService(this, Intent(this, KarbysService::class.java).setAction(KarbysService.ACTION_GREETING))
+    }
+
+    private fun startWayHat() {
+        ContextCompat.startForegroundService(this, Intent(this, WayHatService::class.java).setAction(WayHatService.ACTION_START))
+    }
+
+    private fun send(action: String) = ContextCompat.startForegroundService(this, Intent(this, KarbysService::class.java).setAction(action))
+    private fun sendText(text: String) = ContextCompat.startForegroundService(this, Intent(this, KarbysService::class.java).setAction(KarbysService.ACTION_TEXT).putExtra("text", text))
+
+    private fun sendConfig() {
+        sendWayHat(JSONObject().put("type", "config").put("threshold", threshold).put("mode", mode).put("buzzer", buzzer).toString())
+    }
+    private fun sendHardware(name: String) {
+        sendWayHat(JSONObject().put("type", "command").put("name", name).toString())
+    }
+    private fun sendWayHat(json: String) {
+        ContextCompat.startForegroundService(this, Intent(this, WayHatService::class.java).setAction(WayHatService.ACTION_COMMAND).putExtra(WayHatService.EXTRA_JSON, json))
+    }
+
+    private fun parseTelemetry(line: String) {
+        try {
+            val o = JSONObject(line)
+            right = o.optInt("right", right); left = o.optInt("left", left); rear = o.optInt("rear", rear)
+            tf = o.optInt("tf", tf); closest = o.optInt("closest", closest)
+            threshold = o.optInt("threshold", threshold)
+            mode = o.optString("mode", mode)
+            buzzer = o.optBoolean("buzzer", buzzer)
+        } catch (_: Exception) { }
+    }
+
+    private fun updateDeviceInfo() {
+        val intent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level = intent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = intent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+        battery = if (level >= 0) level * 100 / scale else 0
+        val lm = getSystemService(LOCATION_SERVICE) as LocationManager
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+        val loc = providers.mapNotNull { try { lm.getLastKnownLocation(it) } catch (_: Exception) { null } }.maxByOrNull { it.time }
+        if (loc != null) locationText = "%.5f, %.5f".format(loc.latitude, loc.longitude)
+    }
+
+    private fun cm(v: Int) = if (v > 0) "$v cm" else "—"
+    private fun has(permission: String) = ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+}
+
+/**
+ * Pantalla inicial de configuración: se muestra antes de entrar a la app
+ * cuando todavía no hay clave API de Gemini guardada en el teléfono.
+ */
+@Composable
+private fun KeySetupScreen(onSave: (String) -> Unit, onCancel: (() -> Unit)? = null) {
+    var apiKey by remember { mutableStateOf("") }
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("WAYCORE", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(20.dp))
+        Text(
+            "¡Hola! Karbys puede pensar en dos modos: con IA local dentro del teléfono (no necesita internet ni clave) " +
+                "o con Gemini en la nube (necesita una clave API).",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Si tienes una clave de Gemini, pégala aquí una sola vez y quedará guardada en este teléfono. " +
+                "Si no tienes clave, no pasa nada: usa el botón de abajo y Karbys responderá con el modelo local.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(18.dp))
+        OutlinedTextField(
+            value = apiKey,
+            onValueChange = { apiKey = it },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Clave API de Gemini") }
+        )
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = { onSave(apiKey.trim()) },
+            enabled = apiKey.isNotBlank(),
+            modifier = Modifier.fillMaxWidth().height(56.dp)
+        ) { Text("GUARDAR Y EMPEZAR") }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "Si no tienes una clave, créala gratis en aistudio.google.com, en la opción API Keys. " +
+                "También puedes crearla más tarde desde el botón CAMBIAR CLAVE API.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = { onCancel?.invoke() ?: onSave("") }, modifier = Modifier.fillMaxWidth().height(52.dp)) {
+            Text("USAR IA LOCAL SIN CLAVE")
+        }
+    }
+}
