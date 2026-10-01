@@ -43,14 +43,12 @@ android {
         applicationId = "com.wayhat.waycore"
         minSdk = 26
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.7.1"
+        versionCode = 10
+        versionName = "0.7.2"
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
 
-        // arm64 para móviles reales y x86_64 para emuladores.
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
-        }
+        // Sin filtrar ABIs: se empaquetan todos los que traigan las librerías
+        // (arm64, x86_64, armeabi-v7a...) para que la app abra en cualquier teléfono.
     }
 
     signingConfigs {
@@ -66,11 +64,9 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            // Sin minificar (R8): máxima compatibilidad para que la app abra en
+            // cualquier teléfono. Revisar después.
+            isMinifyEnabled = false
             signingConfig = if (hasReleaseKeystore) {
                 signingConfigs.getByName("release")
             } else {
