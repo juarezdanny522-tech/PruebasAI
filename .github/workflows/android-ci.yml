@@ -126,31 +126,33 @@ jobs:
 
       - name: Publish dev-build prerelease (branch pushes)
         if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: dev-build
-          name: Development Build (auto)
-          prerelease: true
-          body: |
-            ⚠️ **Build automático de desarrollo** (rama `${{ github.ref_name }}`, run #${{ github.run_number }}).
-
-            ### PruebasAI
-            Instalación: descarga `PruebasAI.apk` y ábrelo en tu teléfono Android.
-
-            ### WayCore (Karbys + WayHat) v${{ env.VERSION_WAYCORE }}
-            Instalación: descarga `WayCore.apk` (arm64-v8a, para tu teléfono) y ábrelo en Android.
-
-            Novedades WayCore 0.7.0:
-            - **IA 100% local con LiteRT-LM**: Karbys piensa dentro del teléfono, sin internet y sin clave API.
-            - **Descarga de modelos desde la app**: Gemma 3 270M (304 MB), Qwen 1.5B (1.6 GB, ideal en español) y Gemma 4 E2B (2.6 GB).
-            - **Modos Automático / Local / Gemini**: automático usa el modelo local primero y recurre a Gemini solo si hace falta.
-            - **Karbys controla WayHat también con IA local** (herramientas seguras: modo, sensibilidad, buzzer, telemetría).
-            - Se mantiene todo lo de v0.6.0: palabra clave confiable, "¿Dime?" con voz, clave API configurable en la app.
-
-            Archivos: `WayCore.apk` (instalar en el teléfono) y `WayCore-debug.apk` (depuración).
-          files: |
-            dist/*.apk
-            dist/SHA256SUMS.txt
-          fail_on_unmatched_files: false
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Patrón rolling: borrar y recrear (el GITHUB_TOKEN no puede actualizar releases)
+          gh release delete dev-build -y --repo "$GITHUB_REPOSITORY" || true
+          git push origin :refs/tags/dev-build || true
+          gh release create dev-build dist/*.apk dist/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --prerelease \
+            --title "WayCore + PruebasAI · compilación de desarrollo" \
+            --target "$GITHUB_SHA" \
+            --notes "$(cat <<EOF
+          ⚠️ **Build automático de desarrollo** (rama \`${GITHUB_REF_NAME}\`, run #${GITHUB_RUN_NUMBER}).
+
+          ### PruebasAI
+          Instalación: descarga \`PruebasAI.apk\` y ábrelo en tu teléfono Android.
+
+          ### WayCore (Karbys + WayHat) v${VERSION_WAYCORE}
+          Instalación: descarga \`WayCore.apk\` (arm64-v8a + x86_64, para tu teléfono) y ábrelo en Android.
+
+          Novedades WayCore 0.7.0:
+          - **IA 100% local con LiteRT-LM**: Karbys piensa dentro del teléfono, sin internet y sin clave API.
+          - **Descarga de modelos desde la app**: Gemma 3 270M (304 MB), Qwen 1.5B (1.6 GB, ideal en español) y Gemma 4 E2B (2.6 GB).
+          - **Modos Automático / Local / Gemini**: automático usa el modelo local primero y recurre a Gemini solo si hace falta.
+          - **Karbys controla WayHat también con IA local** (herramientas seguras: modo, sensibilidad, buzzer, telemetría).
+          - Se mantiene todo lo de v0.6.0: palabra clave confiable, "¿Dime?" con voz, clave API configurable en la app.
+
+          Archivos: \`WayCore.apk\` + \`WayCore-debug.apk\`, \`PruebasAI.apk\` + \`PruebasAI-debug.apk\`, y \`SHA256SUMS.txt\`.
+          EOF
+          )"
