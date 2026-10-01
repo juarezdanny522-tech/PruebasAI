@@ -47,7 +47,9 @@ class MainActivity : ComponentActivity() {
     private var locationText by mutableStateOf("Ubicación no disponible")
     private var keyConfigured by mutableStateOf(false)
     private val uiScope = kotlinx.coroutines.MainScope()
-    private val aiMode = MutableStateFlow(AiRouter.getMode(this))
+    // OJO: inicializar solo con constantes (el Context todavía no existe en los
+    // campos de la Activity). El valor real se carga en onCreate.
+    private val aiMode = MutableStateFlow(AiRouter.MODE_AUTO)
 
     private fun refreshAiMode() { aiMode.value = AiRouter.getMode(this) }
 

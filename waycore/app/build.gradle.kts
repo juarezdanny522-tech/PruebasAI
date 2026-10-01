@@ -43,8 +43,8 @@ android {
         applicationId = "com.wayhat.waycore"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.7.0"
+        versionCode = 9
+        versionName = "0.7.1"
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
 
         // arm64 para móviles reales y x86_64 para emuladores.
