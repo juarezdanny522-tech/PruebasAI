@@ -101,8 +101,8 @@ jobs:
       - name: Prepare APKs
         run: |
           mkdir -p dist
-          VERSION_WAYCORE=$(grep 'versionName' waycore/app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
-          VERSION_APP=$(grep 'versionName' app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
+          VERSION_WAYCORE=$(grep -m1 'versionName =' waycore/app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
+          VERSION_APP=$(grep -m1 'versionName =' app/build.gradle.kts | sed -E 's/.*"(.*)".*/\1/')
           echo "VERSION_WAYCORE=$VERSION_WAYCORE" >> "$GITHUB_ENV"
           echo "VERSION_APP=$VERSION_APP" >> "$GITHUB_ENV"
 
