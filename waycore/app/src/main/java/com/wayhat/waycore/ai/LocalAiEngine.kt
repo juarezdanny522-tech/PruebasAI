@@ -38,9 +38,9 @@ object LocalAiEngine {
 
     val isReady: Boolean get() = _state.value is State.Ready
 
-    /** Carga un modelo .litertlm y prepara el motor. */
+    /** Carga un modelo .litertlm y prepara el motor. Llamar desde un hilo de E/S. */
     @Synchronized
-    suspend fun load(modelFile: File) {
+    fun load(modelFile: File) {
         if (loadedFile == modelFile && isReady) return
         close()
         _state.value = State.Loading

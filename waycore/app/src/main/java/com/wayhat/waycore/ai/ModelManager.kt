@@ -58,7 +58,7 @@ object ModelManager {
 
     /** Lanza (o reanuda) la descarga de [model] y sigue su progreso. */
     fun download(context: Context, model: ModelCatalog) {
-        if (_progress.file != null && !_progress.done) return
+        if (_progress.value.file != null && !_progress.value.done) return
         _progress.value = DownloadState(file = model.fileName, fraction = 0f)
         val target = File(modelsDir(context), model.fileName)
         if (target.exists()) target.delete()
@@ -117,6 +117,6 @@ object ModelManager {
     }
 
     fun clearError() {
-        if (_progress.error != null) _progress.value = DownloadState()
+        if (_progress.value.error != null) _progress.value = DownloadState()
     }
 }
