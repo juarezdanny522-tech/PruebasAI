@@ -1,8 +1,8 @@
 import java.util.Properties
 
 plugins {
-    id("com.android.application") version "9.4.1"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.4.20"
+    id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 val localProps = Properties()

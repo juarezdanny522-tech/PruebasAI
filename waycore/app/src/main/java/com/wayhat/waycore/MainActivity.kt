@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.wayhat.waycore.ai.LocalAiEngine
 import com.wayhat.waycore.ai.ModelCatalog
 import com.wayhat.waycore.ai.ModelManager
 import kotlinx.coroutines.Dispatchers
